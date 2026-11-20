@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# T-Pic Manager — คำสั่งช่วยจัดการระบบ (ติดตั้งโดย install.sh ที่ /usr/local/bin/t-pic)
+set -Eeuo pipefail
+
+SERVICE="t-pic"
+APP_USER="t-pic"
+APP_DIR="/opt/t-pic"
+CONF_DIR="/etc/t-pic"
+ENV_FILE="${CONF_DIR}/t-pic.env"
+NODE_BIN="@NODE_BIN@"
+
+[[ -x "$NODE_BIN" ]] || NODE_BIN="$(command -v node || true)"
+
+load_env() {
+  PORT=2681; DATA_DIR=/var/lib/t-pic
+  if [[ -r "$ENV_FILE" ]]; then
+    set -a
+    # shellcheck source=/dev/null
+    . "$ENV_FILE"
+    set +a
+  fi
+}
+
+need_root() {
+  if [[ $EUID -ne 0 ]]; then
+    exec sudo "$0" "$@"
+  fi
+}
+
+run_as_app() {
+  load_env
+  runuser -u "$APP_USER" -- env PORT="$PORT" DATA_DIR="$DATA_DIR" \
+    "$NODE_BIN" --disable-warning=ExperimentalWarning "${APP_DIR}/server.js" "$@"
+}
+
+usage() {
+  cat <<EOF
+T-Pic Manager — คำสั่งจัดการ
+
+  t-pic status                         สถานะ service และที่อยู่สำหรับเข้าใช้
+  t-pic logs                           ดู log แบบสด (Ctrl+C เพื่อออก)
+  sudo t-pic start | stop | restart    เปิด / ปิด / รีสตาร์ต
+  sudo t-pic reset-password <user> [รหัสใหม่]
+                                       ตั้งรหัสผ่านใหม่ (ถ้าลืมรหัส admin ใช้: sudo t-pic reset-password admin)
+  sudo t-pic backup [โฟลเดอร์]          สำรองฐานข้อมูล + รูปทั้งหมดเป็นไฟล์ .tar.gz (ค่าเริ่มต้น: โฟลเดอร์ปัจจุบัน)
+  sudo t-pic restore <ไฟล์.tar.gz>      กู้คืนจากไฟล์สำรอง (ข้อมูลปัจจุบันจะถูกย้ายไปเก็บไว้ก่อน)
+  t-pic config                         แสดงไฟล์ตั้งค่า (${ENV_FILE})
+  t-pic version                        แสดงเวอร์ชัน
+EOF
+}
+
+cmd="${1:-help}"
+shift || true
+
+case "$cmd" in
+  status)
+    load_env
+    systemctl --no-pager status "$SERVICE" | head -n 12 || true
+    echo
+    echo "เข้าใช้งาน:"
+    for ip in $(hostname -I 2>/dev/null); do
+      if [[ "$ip" == *:* ]]; then continue; fi
+      echo "  http://${ip}:${PORT}"
+    done
+    ;;
+  logs)
+    journalctl -u "$SERVICE" -f -n 100
+    ;;
+  start|stop|restart)
+    need_root "$cmd" "$@"
+    systemctl "$cmd" "$SERVICE"
+    echo "${cmd}: เรียบร้อย"
+    ;;
+  reset-password)
+    need_root reset-password "$@"
+    [[ $# -ge 1 ]] || { echo "ใช้งาน: sudo t-pic reset-password <username> [รหัสใหม่]"; exit 2; }
+    run_as_app reset-password "$@"
+    ;;
+  backup)
+    need_root backup "$@"
+    load_env
+    out_dir="$(readlink -f "${1:-.}")"
+    mkdir -p "$out_dir"
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    out="${out_dir}/t-pic-backup-${stamp}.tar.gz"
+    tmp="$(mktemp -d)"
+    chown "$APP_USER:$APP_USER" "$tmp"
+    trap 'rm -rf "$tmp"' EXIT
+    run_as_app backup-db "${tmp}/t-pic.db"
+    mkdir -p "${DATA_DIR}/images"
+    tar -czf "$out" -C "$tmp" t-pic.db -C "$DATA_DIR" images
+    echo "สำรองข้อมูลแล้ว: $out ($(du -h "$out" | cut -f1))"
+    ;;
+  restore)
+    need_root restore "$@"
+    load_env
+    file="${1:-}"
+    [[ -f "$file" ]] || { echo "ใช้งาน: sudo t-pic restore <ไฟล์ t-pic-backup-*.tar.gz>"; exit 2; }
+    file="$(readlink -f "$file")"
+    tar -tzf "$file" | grep -qx 't-pic.db' || { echo "ไฟล์นี้ไม่ใช่ไฟล์สำรองของ T-Pic Manager"; exit 1; }
+    read -r -p "ข้อมูลปัจจุบันจะถูกแทนที่ด้วยไฟล์สำรอง (ของเดิมจะย้ายไปเก็บไว้) ยืนยัน? [y/N] " ans
+    [[ "$ans" =~ ^[Yy]$ ]] || { echo "ยกเลิก"; exit 0; }
+    systemctl stop "$SERVICE"
+    old="${DATA_DIR}.before-restore-$(date +%Y%m%d-%H%M%S)"
+    mv "$DATA_DIR" "$old"
+    install -d -o "$APP_USER" -g "$APP_USER" -m 750 "$DATA_DIR"
+    tar -xzf "$file" -C "$DATA_DIR"
+    chown -R "$APP_USER:$APP_USER" "$DATA_DIR"
+    systemctl start "$SERVICE"
+    echo "กู้คืนเรียบร้อย — ข้อมูลก่อนกู้คืนเก็บไว้ที่ $old (ลบทิ้งได้เมื่อแน่ใจแล้ว)"
+    ;;
+  config)
+    cat "$ENV_FILE"
+    ;;
+  version)
+    sed -n 's/.*"version": *"\([^"]*\)".*/T-Pic Manager v\1/p' "${APP_DIR}/package.json"
+    "$NODE_BIN" -v | sed 's/^/Node.js /'
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    echo "ไม่รู้จักคำสั่ง: $cmd"; echo; usage; exit 2
+    ;;
+esac

@@ -1,0 +1,15 @@
+{
+  "name": "t-pic-manager",
+  "version": "1.0.0",
+  "description": "T-Pic Manager — self-hosted image storage with copyable embed links. Pure Node.js, no npm dependencies.",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "dev": "PORT=2681 DATA_DIR=./data node --disable-warning=ExperimentalWarning --watch server.js"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "license": "UNLICENSED"
+}

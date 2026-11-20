@@ -1,0 +1,10 @@
+# runtime data (local development)
+data/
+
+# Node.js binaries for offline install (large; copy them in by hand)
+offline/*.tar.xz
+offline/*.tar.gz
+
+node_modules/
+*.log
+.DS_Store
