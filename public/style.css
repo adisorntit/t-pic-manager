@@ -157,6 +157,16 @@ button { cursor: pointer; }
 .modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .modal-head h2 { margin: 0; font-size: 20px; overflow-wrap: anywhere; }
 .modal-head .sub { font-size: 13px; color: var(--muted); }
+.head-field { flex: 1; min-width: 0; }
+.title-row { display: flex; align-items: flex-start; gap: 4px; }
+.title-row h2 { padding-top: 6px; }
+.btn-ghost { border-color: transparent; background: transparent; color: var(--muted); }
+.btn-ghost:hover { background: #f3f4f6; color: var(--text); }
+.rename-form { display: flex; flex-direction: column; gap: 6px; }
+.rename-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.rename-row .input { flex: 1 1 220px; min-width: 0; height: 42px; }
+.rename-row .btn { min-height: 42px; }
+.rename-form .hint { font-size: 12px; color: var(--muted); }
 .stats { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .stats div { background: var(--bg); border-radius: 10px; padding: 10px 12px; }
 .stats dt { font-size: 12px; color: var(--muted); }

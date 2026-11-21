@@ -47,6 +47,7 @@
     check: '<path d="M20 6L9 17l-5-5"/>',
     alert: '<path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
     refresh: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
+    pencil: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
     external: '<path d="M14 3h7v7"/><path d="M10 14L21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>',
   };
   function icon(name) {
@@ -687,6 +688,10 @@
     const replaceBtn = h('button', { type: 'button', class: 'btn btn-lg', onclick: () => replaceInput.click() }, icon('refresh'), 'แทนที่รูป (ลิงก์เดิม)');
     const deleteBtn = h('button', { type: 'button', class: 'btn btn-lg btn-danger-outline' }, icon('trash'), 'ลบรูปนี้');
     const closeBtn = h('button', { type: 'button', class: 'btn btn-icon', 'aria-label': 'ปิด' }, icon('x'));
+    const renameBtn = cur.can_edit
+      ? h('button', { type: 'button', class: 'btn btn-icon btn-ghost', 'aria-label': 'แก้ไขชื่อรูป', title: 'แก้ไขชื่อรูป' }, icon('pencil'))
+      : null;
+    const titleRow = h('div', { class: 'title-row' }, title, renameBtn);
 
     function fill() {
       preview.src = thumbSrc(cur);
@@ -706,7 +711,7 @@
     const node = h('section', { class: 'modal' },
       h('div', { class: 'modal-preview' }, preview, openFull),
       h('div', { class: 'modal-info' },
-        h('div', { class: 'modal-head' }, h('div', { class: 'field' }, title, sub), closeBtn),
+        h('div', { class: 'modal-head' }, h('div', { class: 'field head-field' }, titleRow, sub), closeBtn),
         stats,
         h('div', { class: 'copy-list' }, h('h3', null, 'คัดลอกไปใช้งาน'), fields.map((f) => f.node)),
         cur.can_edit
@@ -715,6 +720,54 @@
     fill();
     const close = openModal(node, { labelledby: tid });
     closeBtn.addEventListener('click', close);
+
+    // ---- rename (display/search name only; the link stays the same)
+    function startRename() {
+      const id = nextId('rn');
+      const input = h('input', { class: 'input', id, value: cur.name, maxlength: 200, autocomplete: 'off' });
+      const save = h('button', { type: 'submit', class: 'btn btn-primary' }, 'บันทึก');
+      const cancel = h('button', { type: 'button', class: 'btn' }, 'ยกเลิก');
+      const err = h('p', { class: 'form-error', role: 'alert', hidden: true });
+      const form = h('form', { class: 'rename-form' },
+        h('label', { for: id, class: 'sr-only' }, 'ชื่อรูปใหม่'),
+        h('div', { class: 'rename-row' }, input, save, cancel),
+        h('span', { class: 'hint' }, 'ชื่อนี้ใช้สำหรับค้นหาและแสดงผล — ลิงก์รูปไม่เปลี่ยน'),
+        err);
+      const stop = () => {
+        if (form.isConnected) form.replaceWith(titleRow);
+        if (renameBtn) renameBtn.focus();
+      };
+      cancel.addEventListener('click', stop);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); stop(); }
+      });
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const value = input.value.trim();
+        if (!value) { err.textContent = 'กรุณาใส่ชื่อรูป'; err.hidden = false; input.focus(); return; }
+        if (value === cur.name) return stop();
+        save.disabled = true;
+        try {
+          const r = await api('PATCH', `/api/images/${cur.id}`, { name: value });
+          cur = r.image;
+          fill();
+          stop();
+          toast('เปลี่ยนชื่อแล้ว');
+          loadImages();
+        } catch (ex) {
+          err.textContent = ex.message;
+          err.hidden = false;
+          save.disabled = false;
+        }
+      });
+      titleRow.replaceWith(form);
+      input.focus();
+      // Select the name part only, so typing keeps the extension.
+      const dot = cur.name.lastIndexOf('.');
+      input.setSelectionRange(0, dot > 0 ? dot : cur.name.length);
+    }
+    if (renameBtn) renameBtn.addEventListener('click', startRename);
+    title.addEventListener('dblclick', () => { if (renameBtn) startRename(); });
     deleteBtn.addEventListener('click', () => confirmDelete(cur, close));
 
     replaceInput.addEventListener('change', async () => {

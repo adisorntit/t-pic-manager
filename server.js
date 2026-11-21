@@ -79,7 +79,7 @@ const Q = {
     `UPDATE images SET file = ?, mime = ?, size = ?, width = ?, height = ?, version = version + 1, updated_at = ?
      WHERE id = ?`
   ),
-  imageRename: db.prepare('UPDATE images SET name = ?, updated_at = ? WHERE id = ?'),
+  imageRename: db.prepare('UPDATE images SET name = ? WHERE id = ?'),
   imageDelete: db.prepare('DELETE FROM images WHERE id = ?'),
   imageStats: db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS bytes FROM images'),
   settingGet: db.prepare('SELECT value FROM settings WHERE key = ?'),
@@ -268,14 +268,24 @@ function removeQuietly(abs) {
   try { fs.unlinkSync(abs); } catch { /* already gone */ }
 }
 
+/** Make a display name safe: no slashes or control characters, max 200 chars. */
+function sanitizeName(raw) {
+  let name = String(raw == null ? '' : raw)
+    .replace(/[\\/]/g, '_')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (name.length > 200) name = name.slice(0, 200).trim();
+  return name;
+}
+
+/** Name from the X-Filename upload header (sent URL-encoded by the browser). */
 function cleanName(raw, fallbackExt) {
   let name = '';
   if (raw) {
     try { name = decodeURIComponent(String(raw)); } catch { name = String(raw); }
   }
-  name = name.replace(/[\\/]/g, '_').replace(/[\u0000-\u001f\u007f]/g, '').trim();
-  if (name.length > 200) name = name.slice(0, 200);
-  return name || `image.${fallbackExt}`;
+  return sanitizeName(name) || `image.${fallbackExt}`;
 }
 
 async function readImageUpload(req) {
@@ -549,9 +559,15 @@ async function handleApi(req, res, url) {
     }
 
     if (method === 'PATCH') {
+      // Rename (display/search name only — the public link never changes).
       const body = await H.readJson(req);
-      const name = cleanName(body.name, row.ext);
-      Q.imageRename.run(name, Date.now(), id);
+      if (typeof body.name !== 'string') throw new HttpError(400, 'กรุณาใส่ชื่อรูป');
+      const name = sanitizeName(body.name);
+      if (!name) throw new HttpError(400, 'กรุณาใส่ชื่อรูป');
+      if (name !== row.name) {
+        Q.imageRename.run(name, id);
+        console.log(`[rename] ${u.username} ${id} "${row.name}" -> "${name}"`);
+      }
       return H.json(res, 200, { image: imageDto(Q.imageGet.get(id), req, u) });
     }
 
